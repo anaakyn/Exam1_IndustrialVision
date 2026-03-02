@@ -1,193 +1,160 @@
-import sys
 import cv2
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout
-)
-from PyQt6.QtGui import QImage, QPixmap, QFont
-from PyQt6.QtCore import QTimer, Qt
+import numpy as np
+import serial
+import time
+import copy
 
-from vision import VisionSystem
-from system_state import GameState
-from serial_controller import ArduinoNanoController
+from config import ARDUINO_PORT, ARDUINO_BAUD, RANGOS_HSV_DEFAULT, COLORES_BGR
+from detection import hacer_mascara_disco, aplicar_morfologia, detectar_pelotas_negras
+from tracking_manager import TrackingManager
+from renderer import dibujar_sectores, dibujar_trackers, dibujar_hud
+from calibration import mouse_callback_factory
+
+# ==========================================
+# CONEXION ARDUINO
+# ==========================================
+arduino = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD)
+time.sleep(2)
+
+# ==========================================
+# ESTADO COMPARTIDO DE LA APLICACION
+# ==========================================
+app_state = {
+    "estado":             "MENU_INICIAL",
+    "color_seleccionado": "",
+    "frame_hsv_global":   None,
+    "rangos_hsv":         copy.deepcopy(RANGOS_HSV_DEFAULT),
+    "drag_inicio":        None,
+    "drag_actual":        None,
+    "disco_cx":           0,
+    "disco_cy":           0,
+    "disco_radio":        0,
+    "disco_listo":        False,
+}
+
+# ==========================================
+# TRACKING MANAGER
+# ==========================================
+tm = TrackingManager(arduino)
 
 
-class MainWindow(QWidget):
-
-    def __init__(self):
-        super().__init__()
-
-        self.setWindowTitle("Spinning Disk System")
-        self.setGeometry(100, 100, 1100, 850)
-        self.setStyleSheet("background-color: #1e1e1e;")
-
-        # =========================
-        # SISTEMAS
-        # =========================
-        self.game = GameState()
-        self.vision = VisionSystem(camera_index=1)
-        self.arduino = ArduinoNanoController(port="COM9")
-
-        self.init_ui()
-
-        # Timer de actualización
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)
-
-    # ==========================================
-    # UI
-    # ==========================================
-    def init_ui(self):
-
-        # ===== TÍTULO =====
-        self.title_label = QLabel("SPINNING DISK")
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        font = QFont("Arial", 32, QFont.Weight.Bold)
-        self.title_label.setFont(font)
-        self.title_label.setStyleSheet("color: white;")
-
-        # ===== MARCADOR =====
-        self.score_label = QLabel("Throws: 0 | Last: 0 | Total: 0")
-        self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.score_label.setFont(QFont("Arial", 18))
-        self.score_label.setStyleSheet("color: #f1c40f;")
-
-        # ===== BOTONES =====
-        self.start_button = QPushButton("START")
-        self.stop_button = QPushButton("STOP")
-
-        self.start_button.setFixedHeight(50)
-        self.stop_button.setFixedHeight(50)
-
-        self.start_button.clicked.connect(self.start_game)
-        self.stop_button.clicked.connect(self.stop_game)
-
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2ecc71;
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-                border-radius: 10px;
-            }
-            QPushButton:hover {
-                background-color: #27ae60;
-            }
-        """)
-
-        self.stop_button.setStyleSheet("""
-            QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-                border-radius: 10px;
-            }
-            QPushButton:hover {
-                background-color: #c0392b;
-            }
-        """)
-
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.start_button)
-        button_layout.addWidget(self.stop_button)
-
-        # ===== VIDEO =====
-        self.video_label = QLabel()
-        self.video_label.setFixedSize(900, 650)
-        self.video_label.setStyleSheet("""
-            QLabel {
-                background-color: black;
-                border: 3px solid #444;
-                border-radius: 10px;
-            }
-        """)
-        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # ===== LAYOUT PRINCIPAL =====
-        layout = QVBoxLayout()
-        layout.addWidget(self.title_label)
-        layout.addSpacing(10)
-        layout.addWidget(self.score_label)
-        layout.addSpacing(20)
-        layout.addLayout(button_layout)
-        layout.addSpacing(20)
-        layout.addWidget(self.video_label, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self.setLayout(layout)
-
-    # ==========================================
-    # CONTROL
-    # ==========================================
-    def start_game(self):
-        self.game.reset()
-        self.game.running = True
-        self.update_score_display()
-
-        self.arduino.send_start()
-        self.arduino.send_scores(0, 0, 0)
-
-    def stop_game(self):
-        self.game.running = False
-        self.arduino.send_stop()
-
-    def update_score_display(self):
-        self.score_label.setText(
-            f"Throws: {self.game.throws} | "
-            f"Last: {self.game.last_score} | "
-            f"Total: {self.game.total_score}"
-        )
-
-    # ==========================================
-    # LOOP VIDEO
-    # ==========================================
-    def update_frame(self):
-
-        frame, lanzamiento_valido, puntos = self.vision.get_frame()
-
-        if frame is None:
-            return
-
-        # Si el juego está activo y hubo lanzamiento válido
-        if self.game.running and lanzamiento_valido:
-
-            self.game.add_score(puntos)
-            self.update_score_display()
-
-            self.arduino.send_scores(
-                self.game.throws,
-                self.game.last_score,
-                self.game.total_score
-            )
-
-            # Limitar a 3 lanzamientos
-            if self.game.throws >= 3:
-                self.stop_game()
-
-        # Convertir frame a Qt
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        bytes_per_line = ch * w
-
-        qt_img = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-        self.video_label.setPixmap(QPixmap.fromImage(qt_img))
-
-    # ==========================================
-    # CIERRE SEGURO
-    # ==========================================
-    def closeEvent(self, event):
-        self.arduino.close()
-        self.vision.cap.release()
-        event.accept()
+def distancia(p1, p2):
+    return np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
 
 
 # ==========================================
-# MAIN
+# CAPTURA Y VENTANA
 # ==========================================
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+cap = cv2.VideoCapture(1)
+VENTANA = "Deteccion Rotatoria Dinamica"
+cv2.namedWindow(VENTANA)
+cv2.setMouseCallback(VENTANA, mouse_callback_factory(app_state))
+
+# ==========================================
+# LOOP PRINCIPAL
+# ==========================================
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame = cv2.flip(frame, 1)
+    app_state["frame_hsv_global"] = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    frame_display = frame.copy()
+    key = cv2.waitKey(1) & 0xFF
+
+    s = app_state
+    mascara_disco = (
+        hacer_mascara_disco(frame.shape, s["disco_cx"], s["disco_cy"], s["disco_radio"])
+        if s["disco_listo"] else None
+    )
+
+    # ------------------------------------------
+    # MAQUINA DE ESTADOS
+    # ------------------------------------------
+    if s["estado"] == "MENU_INICIAL":
+        cv2.putText(frame_display, "MENU PRINCIPAL", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        cv2.putText(frame_display, "1. Definir disco y jugar", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(frame_display, "2. Configurar colores", (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        if   key == ord('1'): s["estado"] = "CALIBRANDO_DISCO"
+        elif key == ord('2'): s["estado"] = "MENU_COLORES"
+        elif key == ord('q'): break
+
+    elif s["estado"] == "MENU_COLORES":
+        cv2.putText(frame_display, "SELECCIONA COLOR A CALIBRAR:", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        cv2.putText(frame_display, "1: Verde | 2: Azul | 3: Amarillo", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(frame_display, "4: Rosa  | 5: Rojo", (20, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(frame_display, "ESPACIO = volver", (20, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        if   key == ord('1'): s["color_seleccionado"] = "Verde";    s["estado"] = "CALIBRANDO_CLIC"
+        elif key == ord('2'): s["color_seleccionado"] = "Azul";     s["estado"] = "CALIBRANDO_CLIC"
+        elif key == ord('3'): s["color_seleccionado"] = "Amarillo"; s["estado"] = "CALIBRANDO_CLIC"
+        elif key == ord('4'): s["color_seleccionado"] = "Rosa";     s["estado"] = "CALIBRANDO_CLIC"
+        elif key == ord('5'): s["color_seleccionado"] = "Rojo";     s["estado"] = "CALIBRANDO_CLIC"
+        elif key == 32:       s["estado"] = "MENU_INICIAL"
+
+    elif s["estado"] == "CALIBRANDO_CLIC":
+        cv2.putText(frame_display, f"CALIBRANDO: {s['color_seleccionado'].upper()}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        cv2.putText(frame_display, "Haz CLIC sobre ese color", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(frame_display, "'c' para cancelar", (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        if key == ord('c'): s["estado"] = "MENU_COLORES"
+
+    elif s["estado"] == "CALIBRANDO_DISCO":
+        cv2.putText(frame_display, "DEFINE EL DISCO", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
+        cv2.putText(frame_display, "CLIC en el centro, ARRASTRA al borde", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame_display, "ESPACIO = confirmar  |  'r' = reintentar", (20, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+
+        if s["drag_inicio"] and s["drag_actual"]:
+            r_prev = int(distancia(s["drag_inicio"], s["drag_actual"]))
+            cv2.circle(frame_display, s["drag_inicio"], 5, (0, 255, 255), -1)
+            cv2.circle(frame_display, s["drag_inicio"], r_prev, (0, 255, 255), 2)
+            cv2.putText(frame_display, f"radio: {r_prev}px",
+                        (s["drag_inicio"][0] + 10, s["drag_inicio"][1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+        elif s["disco_listo"]:
+            cv2.circle(frame_display, (s["disco_cx"], s["disco_cy"]), s["disco_radio"], (0, 255, 0), 2)
+            cv2.circle(frame_display, (s["disco_cx"], s["disco_cy"]), 5, (0, 255, 0), -1)
+            cv2.putText(frame_display, f"r={s['disco_radio']}px  OK - ESPACIO para jugar",
+                        (20, frame_display.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        if key == 32 and s["disco_listo"]:
+            s["estado"] = "JUEGO"
+            tm.trackers = []
+            print(f"[Disco OK] Centro=({s['disco_cx']},{s['disco_cy']}) Radio={s['disco_radio']}px")
+        elif key == ord('r'):
+            s["disco_listo"] = False
+            s["drag_inicio"] = None
+            s["drag_actual"] = None
+
+    elif s["estado"] == "JUEGO":
+        # Mascaras RAW
+        mascaras_raw = {}
+        for nombre, rangos in s["rangos_hsv"].items():
+            m = np.zeros(s["frame_hsv_global"].shape[:2], dtype=np.uint8)
+            for (lo, hi) in rangos:
+                m = cv2.bitwise_or(m, cv2.inRange(s["frame_hsv_global"], lo, hi))
+            mascaras_raw[nombre] = m
+
+        mascaras = {n: aplicar_morfologia(m.copy(), mascara_disco)
+                    for n, m in mascaras_raw.items()}
+
+        if s["disco_listo"]:
+            cv2.circle(frame_display, (s["disco_cx"], s["disco_cy"]), s["disco_radio"], (255, 255, 0), 2)
+
+        dibujar_sectores(frame_display, mascaras)
+
+        detecciones = detectar_pelotas_negras(s["frame_hsv_global"], mascaras_raw, mascara_disco)
+        tm.actualizar(detecciones)
+        dibujar_trackers(frame_display, tm.trackers)
+        dibujar_hud(frame_display, tm.puntaje_total)
+
+        if   key == ord('d'): s["estado"] = "CALIBRANDO_DISCO"; s["disco_listo"] = False
+        elif key == ord('r'): tm.reset()
+        elif key == ord('m'): s["estado"] = "MENU_INICIAL"
+
+    cv2.imshow(VENTANA, frame_display)
+    if key == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
