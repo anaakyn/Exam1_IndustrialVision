@@ -1,0 +1,23 @@
+import numpy as np
+
+# ===== PUNTUACIONES =====
+PUNTUACIONES = {
+    "Verde": 40,
+    "Azul": 50,
+    "Amarillo": 25,
+    "Rosa": 100,
+    "Rojo": 20
+}
+
+# ===== PARÁMETROS =====
+AREA_MINIMA_SECTOR = 2000
+TIEMPO_CONFIRMACION = 0.8
+MAX_PELOTAS = 3
+DISTANCIA_MISMA_PELOTA = 120
+TIEMPO_OLVIDO = 4.0
+
+RANGO_NEGRO_LOWER = np.array([0, 0, 0])
+RANGO_NEGRO_UPPER = np.array([179, 120, 80])
+AREA_MINIMA_PELOTA_NEGRA = 500
+AREA_MAXIMA_PELOTA_NEGRA = 10000
+CIRCULARIDAD_MINIMA = 0.55

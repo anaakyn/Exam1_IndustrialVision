@@ -1,43 +1,162 @@
 import cv2
 import numpy as np
-
-COLORES = {
-    "Rojo": {
-        "bajo": {"L": np.array([0, 99, 59]), "U": np.array([10, 255, 255])},
-        "alto": {"L": np.array([160, 100, 100]), "U": np.array([179, 255, 255])},
-        "puntos": 20
-    },
-    "Azul": {"L": np.array([101, 109, 21]), "U": np.array([147, 255, 255]), "puntos": 50},
-    "Verde": {"L": np.array([68, 149, 62]), "U": np.array([104, 255, 255]), "puntos": 25},
-    "Amarillo": {"L": np.array([21, 101, 0]), "U": np.array([41, 220, 255]), "puntos": 25},
-    "Rosa": {"L": np.array([135, 24, 184]), "U": np.array([179, 57, 255]), "puntos": 40},
-}
-
-VISUAL_COLORS = {
-    "Rojo": (0, 0, 255),
-    "Azul": (255, 0, 0),
-    "Verde": (0, 255, 0),
-    "Amarillo": (0, 255, 255),
-    "Rosa": (180, 105, 255)
-}
-
-AREA_MINIMA_ZONA = 6000
-AREA_MINIMA_PELOTA = 1200
-AREA_MAXIMA_PELOTA = 7000
-CIRCULARIDAD_MIN = 0.65
-TOLERANCIA_DISTANCIA = -10
-
+import time
+from tracker import TrackerPelota
+from config import *
 
 class VisionSystem:
 
-    def __init__(self, camera_index=1):
+    def __init__(self, camera_index=0):
+
         self.cap = cv2.VideoCapture(camera_index)
+        self.trackers = []
 
-        # Memoria para evitar doble conteo
-        self.pelota_activa = False
-        self.frames_estables = 0
-        self.FRAMES_REQUERIDOS = 6
+        # Disco fijo (luego podemos hacerlo dinámico desde GUI)
+        self.disco_cx = 320
+        self.disco_cy = 240
+        self.disco_radio = 220
 
+        self.kernel_opening = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        self.kernel_closing = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        self.kernel_negro   = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+
+        # Rangos HSV
+        self.rangos_hsv = {
+            "Verde":    [(np.array([68,123,65]),   np.array([107,255,255]))],
+            "Azul":     [(np.array([101,118,102]), np.array([118,239,198]))],
+            "Amarillo": [(np.array([21,101,0]),    np.array([41,220,255]))],
+            "Rosa":     [(np.array([135,24,150]),  np.array([179,100,255]))],
+            "Rojo":     [(np.array([0,102,120]),   np.array([12,255,255])),
+                         (np.array([168,102,120]), np.array([179,255,255]))]
+        }
+
+    # ==========================================
+    # MÁSCARA DISCO
+    # ==========================================
+    def hacer_mascara_disco(self, shape):
+        mask = np.zeros(shape[:2], dtype=np.uint8)
+        cv2.circle(mask, (self.disco_cx, self.disco_cy), self.disco_radio, 255, -1)
+        return mask
+
+    # ==========================================
+    # DETECTAR SECTORES
+    # ==========================================
+    def detectar_sectores(self, frame_hsv, mascara_disco):
+
+        mascaras = {}
+
+        for nombre, rangos in self.rangos_hsv.items():
+
+            mask = np.zeros(frame_hsv.shape[:2], dtype=np.uint8)
+
+            for (lo, hi) in rangos:
+                mask = cv2.bitwise_or(mask, cv2.inRange(frame_hsv, lo, hi))
+
+            mask = cv2.bitwise_and(mask, mascara_disco)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel_opening, iterations=2)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel_closing, iterations=1)
+
+            mascaras[nombre] = mask
+
+        return mascaras
+
+    # ==========================================
+    # DETECTAR PELOTAS NEGRAS
+    # ==========================================
+    def detectar_pelotas(self, frame_hsv, mascara_disco):
+
+        mask_negro = cv2.inRange(frame_hsv, RANGO_NEGRO_LOWER, RANGO_NEGRO_UPPER)
+        mask_negro = cv2.bitwise_and(mask_negro, mascara_disco)
+        mask_negro = cv2.morphologyEx(mask_negro, cv2.MORPH_OPEN,  self.kernel_negro, iterations=1)
+        mask_negro = cv2.morphologyEx(mask_negro, cv2.MORPH_CLOSE, self.kernel_negro, iterations=2)
+
+        cnts, _ = cv2.findContours(mask_negro, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        detecciones = []
+
+        for c in cnts:
+
+            area = cv2.contourArea(c)
+            if not (AREA_MINIMA_PELOTA_NEGRA < area < AREA_MAXIMA_PELOTA_NEGRA):
+                continue
+
+            perimetro = cv2.arcLength(c, True)
+            if perimetro == 0:
+                continue
+
+            circularidad = (4 * np.pi * area) / (perimetro ** 2)
+            if circularidad < CIRCULARIDAD_MINIMA:
+                continue
+
+            M = cv2.moments(c)
+            if M["m00"] == 0:
+                continue
+
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+
+            detecciones.append({
+                "contorno": c,
+                "cx": cx,
+                "cy": cy
+            })
+
+        return detecciones
+
+    # ==========================================
+    # DETERMINAR SECTOR DE LA PELOTA
+    # ==========================================
+    def obtener_sector(self, pelota_mask, mascaras_sectores):
+
+        mejor_sector = None
+        max_solap = 0
+
+        for nombre, mask in mascaras_sectores.items():
+            solap = cv2.countNonZero(cv2.bitwise_and(pelota_mask, mask))
+            if solap > max_solap:
+                max_solap = solap
+                mejor_sector = nombre
+
+        return mejor_sector
+
+    # ==========================================
+    # TRACKING Y CONFIRMACIÓN
+    # ==========================================
+    def actualizar_trackers(self, detecciones, mascaras_sectores, frame_shape):
+
+        lanzamiento_valido = False
+        puntos = 0
+
+        for det in detecciones:
+
+            mask_pelota = np.zeros(frame_shape[:2], dtype=np.uint8)
+            cv2.circle(mask_pelota, (det["cx"], det["cy"]), 20, 255, -1)
+
+            sector = self.obtener_sector(mask_pelota, mascaras_sectores)
+
+            if sector is None:
+                continue
+
+            puntos_sector = PUNTUACIONES.get(sector, 0)
+
+            nuevo = TrackerPelota(det["cx"], det["cy"], sector, puntos_sector)
+            self.trackers.append(nuevo)
+
+        for t in self.trackers:
+
+            if not t.confirmada and t.tiempo_visible() >= TIEMPO_CONFIRMACION:
+                t.confirmada = True
+                lanzamiento_valido = True
+                puntos = t.puntos
+                break
+
+        self.trackers = [t for t in self.trackers if t.tiempo_visible() < TIEMPO_OLVIDO]
+
+        return lanzamiento_valido, puntos
+
+    # ==========================================
+    # MÉTODO PRINCIPAL
+    # ==========================================
     def get_frame(self):
 
         ret, frame = self.cap.read()
@@ -45,92 +164,22 @@ class VisionSystem:
             return None, False, 0
 
         frame = cv2.flip(frame, 1)
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        zonas_activas = []
-        lanzamiento_valido = False
-        puntos_detectados = 0
+        mascara_disco = self.hacer_mascara_disco(frame.shape)
 
-        # =====================
-        # DETECTAR ZONAS COLOR
-        # =====================
-        for nombre, data in COLORES.items():
+        mascaras_sectores = self.detectar_sectores(frame_hsv, mascara_disco)
+        detecciones = self.detectar_pelotas(frame_hsv, mascara_disco)
 
-            if nombre == "Rojo":
-                m1 = cv2.inRange(hsv, data["bajo"]["L"], data["bajo"]["U"])
-                m2 = cv2.inRange(hsv, data["alto"]["L"], data["alto"]["U"])
-                mask_zona = cv2.add(m1, m2)
-            else:
-                mask_zona = cv2.inRange(hsv, data["L"], data["U"])
+        lanzamiento_valido, puntos = self.actualizar_trackers(
+            detecciones, mascaras_sectores, frame.shape
+        )
 
-            kernel = np.ones((5,5), np.uint8)
-            mask_zona = cv2.morphologyEx(mask_zona, cv2.MORPH_CLOSE, kernel)
+        # Dibujar disco
+        cv2.circle(frame, (self.disco_cx, self.disco_cy), self.disco_radio, (255,255,0), 2)
 
-            cnts_zona, _ = cv2.findContours(mask_zona, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Dibujar detecciones
+        for det in detecciones:
+            cv2.circle(frame, (det["cx"], det["cy"]), 20, (0,255,0), 2)
 
-            for c in cnts_zona:
-                if cv2.contourArea(c) > AREA_MINIMA_ZONA:
-                    cv2.drawContours(frame, [c], -1, VISUAL_COLORS[nombre], 3)
-                    zonas_activas.append((nombre, c))
-
-        # =====================
-        # DETECCIÓN PELOTA NEGRA
-        # =====================
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (9,9), 0)
-
-        # Detectar objetos oscuros
-        _, th = cv2.threshold(blur, 60, 255, cv2.THRESH_BINARY_INV)
-
-        kernel = np.ones((7,7), np.uint8)
-        th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel)
-        th = cv2.morphologyEx(th, cv2.MORPH_OPEN, kernel)
-
-        cnts, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        for c in cnts:
-
-            area = cv2.contourArea(c)
-            if area < AREA_MINIMA_PELOTA or area > AREA_MAXIMA_PELOTA:
-                continue
-
-            perimetro = cv2.arcLength(c, True)
-            if perimetro == 0:
-                continue
-
-            circularidad = 4 * np.pi * area / (perimetro ** 2)
-            if circularidad < CIRCULARIDAD_MIN:
-                continue
-
-            M = cv2.moments(c)
-            if M["m00"] == 0:
-                continue
-
-            px = int(M["m10"] / M["m00"])
-            py = int(M["m01"] / M["m00"])
-
-            mejor_color = None
-
-            for (nombre_zona, contorno_zona) in zonas_activas:
-                dist = cv2.pointPolygonTest(contorno_zona, (px, py), True)
-                if dist > TOLERANCIA_DISTANCIA:
-                    mejor_color = nombre_zona
-                    break
-
-            if mejor_color:
-
-                self.frames_estables += 1
-
-                if self.frames_estables >= self.FRAMES_REQUERIDOS and not self.pelota_activa:
-
-                    puntos_detectados = COLORES[mejor_color]["puntos"]
-                    lanzamiento_valido = True
-                    self.pelota_activa = True
-
-                cv2.drawContours(frame, [c], -1, (0,0,255), 3)
-
-            else:
-                self.frames_estables = 0
-                self.pelota_activa = False
-
-        return frame, lanzamiento_valido, puntos_detectados
+        return frame, lanzamiento_valido, puntos
