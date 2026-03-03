@@ -4,7 +4,7 @@ import numpy as np
 from config import (
     RANGO_NEGRO_LOWER, RANGO_NEGRO_UPPER,
     AREA_MINIMA_PELOTA_NEGRA, AREA_MAXIMA_PELOTA_NEGRA,
-    CIRCULARIDAD_MINIMA, MAX_PELOTAS, PUNTUACIONES,
+    CIRCULARIDAD_MINIMA, MAX_PELOTAS,
 )
 
 # ==========================================
@@ -45,9 +45,11 @@ def detectar_pelotas_negras(frame_hsv, mascaras_raw, mascara_disco):
         area = cv2.contourArea(c)
         if not (AREA_MINIMA_PELOTA_NEGRA < area < AREA_MAXIMA_PELOTA_NEGRA):
             continue
+
         perimetro = cv2.arcLength(c, True)
         if perimetro == 0:
             continue
+
         circularidad = (4 * np.pi * area) / (perimetro ** 2)
         if circularidad < CIRCULARIDAD_MINIMA:
             continue
@@ -55,22 +57,30 @@ def detectar_pelotas_negras(frame_hsv, mascaras_raw, mascara_disco):
         M = cv2.moments(c)
         if M["m00"] == 0:
             continue
+
         cx = int(M["m10"] / M["m00"])
         cy = int(M["m01"] / M["m00"])
 
+        # Determinar sector por mayor solapamiento
         color_sector = None
         max_solap    = 0
-        mask_pelota  = np.zeros(frame_hsv.shape[:2], dtype=np.uint8)
+
+        mask_pelota = np.zeros(frame_hsv.shape[:2], dtype=np.uint8)
         cv2.drawContours(mask_pelota, [c], -1, 255, -1)
+
         for nombre, m_raw in mascaras_raw.items():
             m_dil = cv2.dilate(m_raw, kernel_negro, iterations=6)
             m_dil = cv2.bitwise_and(m_dil, mascara_disco)
             solap = cv2.countNonZero(cv2.bitwise_and(mask_pelota, m_dil))
+
             if solap > max_solap:
                 max_solap    = solap
                 color_sector = nombre
 
-        area_norm = (area - AREA_MINIMA_PELOTA_NEGRA) / (AREA_MAXIMA_PELOTA_NEGRA - AREA_MINIMA_PELOTA_NEGRA)
+        area_norm = (
+            (area - AREA_MINIMA_PELOTA_NEGRA)
+            / (AREA_MAXIMA_PELOTA_NEGRA - AREA_MINIMA_PELOTA_NEGRA)
+        )
         score = circularidad * 0.6 + area_norm * 0.4
 
         candidatas.append({
@@ -78,7 +88,6 @@ def detectar_pelotas_negras(frame_hsv, mascaras_raw, mascara_disco):
             "cx":           cx,
             "cy":           cy,
             "color_sector": color_sector,
-            "puntos":       PUNTUACIONES.get(color_sector, 0) if color_sector else 0,
             "score":        score,
             "circularidad": round(circularidad, 2),
         })

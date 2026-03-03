@@ -36,12 +36,6 @@ def dibujar_trackers(frame_display, trackers):
                 cv2.putText(frame_display, f"{sector}: {t.puntos}pts",
                             (cx - 45, cy - 35), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color_sector, 2)
             bw = int(t.progreso() * 60)
-            cv2.rectangle(frame_display, (cx - 30, cy + 12), (cx + 30,    cy + 20), (40, 40, 40),    -1)
-            cv2.rectangle(frame_display, (cx - 30, cy + 12), (cx - 30 + bw, cy + 20), (0, 220, 0),   -1)
-            cv2.rectangle(frame_display, (cx - 30, cy + 12), (cx + 30,    cy + 20), (180, 180, 180),  1)
-
-
-def dibujar_hud(frame_display, puntaje_total):
-    cv2.rectangle(frame_display, (5, 5), (230, 55), (0, 0, 0), -1)
-    cv2.putText(frame_display, f"Puntaje total: {puntaje_total}",
-                (10, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 255, 255), 2)
+            cv2.rectangle(frame_display, (cx - 30, cy + 12), (cx + 30,      cy + 20), (40, 40, 40),   -1)
+            cv2.rectangle(frame_display, (cx - 30, cy + 12), (cx - 30 + bw, cy + 20), (0, 220, 0),    -1)
+            cv2.rectangle(frame_display, (cx - 30, cy + 12), (cx + 30,      cy + 20), (180, 180, 180),  1)
