@@ -62,10 +62,8 @@ class TrackingManager:
                 trackers_actualizados.add(t.id)
                 detecciones_asignadas.add(best_i)
 
-                # Confirmación temporal
                 if not t.confirmada and t.tiempo_visible() >= TIEMPO_CONFIRMACION:
                     t.confirmada = True
-
                     eventos_confirmados.append({
                         "tracker_id": t.id,
                         "sector": det["color_sector"]
@@ -78,10 +76,10 @@ class TrackingManager:
                 self.trackers.append(nuevo)
                 print(f"Nueva pelota en {det['color_sector']}")
 
-        # Eliminar trackers viejos
+        # Eliminar trackers viejos O ya confirmados (ya sumaron sus puntos)
         self.trackers = [
             t for t in self.trackers
-            if t.ausencia() < TIEMPO_OLVIDO
+            if t.ausencia() < TIEMPO_OLVIDO and not t.confirmada
         ]
 
         return eventos_confirmados
