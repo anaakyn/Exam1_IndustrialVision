@@ -15,15 +15,7 @@ class TrackingManager:
         print("Reset tracking")
 
     def actualizar(self, detecciones):
-        """
-        Devuelve una lista de eventos confirmados:
-        [
-            {"sector": "Azul", "tracker_id": 3},
-            ...
-        ]
-        """
         eventos_confirmados = []
-
         trackers_actualizados = set()
         detecciones_asignadas = set()
 
@@ -57,26 +49,27 @@ class TrackingManager:
                 det = detecciones[best_i]
                 t   = self.trackers[best_j]
 
-                t.actualizar(det["cx"], det["cy"], det["color_sector"], None)
+                # CORREGIDO: pasar puntos reales en vez de None
+                t.actualizar(det["cx"], det["cy"], det["color_sector"], det["puntos"])
 
                 trackers_actualizados.add(t.id)
                 detecciones_asignadas.add(best_i)
 
                 if not t.confirmada and t.tiempo_visible() >= TIEMPO_CONFIRMACION:
-                    t.confirmada = True
+                    t.confirmada     = True
+                    t.puntos_sumados = det["puntos"]
                     eventos_confirmados.append({
                         "tracker_id": t.id,
-                        "sector": det["color_sector"]
+                        "sector":     det["color_sector"]
                     })
 
-        # Crear nuevos trackers
         for i, det in enumerate(detecciones):
             if i not in detecciones_asignadas and len(self.trackers) < MAX_PELOTAS:
-                nuevo = TrackerPelota(det["cx"], det["cy"], det["color_sector"], None)
+                nuevo = TrackerPelota(det["cx"], det["cy"], det["color_sector"], det["puntos"])
                 self.trackers.append(nuevo)
                 print(f"Nueva pelota en {det['color_sector']}")
 
-        # Eliminar trackers viejos O ya confirmados (ya sumaron sus puntos)
+        # CORREGIDO: eliminar trackers viejos Y confirmados
         self.trackers = [
             t for t in self.trackers
             if t.ausencia() < TIEMPO_OLVIDO and not t.confirmada

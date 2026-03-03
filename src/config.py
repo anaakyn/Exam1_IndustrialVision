@@ -5,7 +5,7 @@ import numpy as np
 # ==========================================
 PUNTUACION_ROSA     = 100
 PUNTUACION_AZUL     = 50
-PUNTUACION_VERDE    = 40
+PUNTUACION_VERDE    = 30   # CORREGIDO: era 40, el original usa 30
 PUNTUACION_AMARILLO = 25
 PUNTUACION_ROJO     = 20
 
@@ -55,5 +55,5 @@ PUNTUACIONES = {
 # ==========================================
 # ARDUINO
 # ==========================================
-ARDUINO_PORT = "COM9"
+ARDUINO_PORT = "COM11"
 ARDUINO_BAUD = 9600
