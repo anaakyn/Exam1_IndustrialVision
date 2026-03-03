@@ -55,5 +55,5 @@ PUNTUACIONES = {
 # ==========================================
 # ARDUINO
 # ==========================================
-ARDUINO_PORT = "COM11"
+ARDUINO_PORT = "COM9"
 ARDUINO_BAUD = 9600

@@ -155,6 +155,8 @@ while True:
 
     elif s.estado == "JUEGO":
 
+        game_manager.leer_serial(tm)
+
         mascaras_raw = {}
         for nombre, rangos in s.rangos_hsv.items():
             m = np.zeros(s.frame_hsv_global.shape[:2], dtype=np.uint8)

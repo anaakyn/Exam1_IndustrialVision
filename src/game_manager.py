@@ -17,6 +17,14 @@ class GameManager:
         self.last_score    = 0
         print("Reset game")
 
+    def leer_serial(self, tm):
+        while self.arduino.in_waiting > 0:
+            linea = self.arduino.readline().decode(errors="ignore").strip()
+            if linea == "START":
+                self.reset()
+                tm.reset()
+                print("Reset por boton START del Arduino")
+
     def registrar_evento(self, sector):
         if self.throws >= MAX_THROWS:
             return
