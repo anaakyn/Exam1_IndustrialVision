@@ -1,5 +1,7 @@
 from config import PUNTUACIONES
 
+MAX_THROWS = 3
+
 
 class GameManager:
 
@@ -16,13 +18,16 @@ class GameManager:
         print("Reset game")
 
     def registrar_evento(self, sector):
+        if self.throws >= MAX_THROWS:
+            return
+
         puntos = PUNTUACIONES.get(sector, 0)
 
         self.throws        += 1
         self.last_score     = puntos
         self.puntaje_total += puntos
 
-        print(f"Pelota confirmada en {sector} +{puntos}pts | Total: {self.puntaje_total}")
+        print(f"Pelota confirmada en {sector} +{puntos}pts | Total: {self.puntaje_total} ({self.throws}/{MAX_THROWS})")
 
         mensaje = f"{self.throws},{self.last_score},{self.puntaje_total}\n"
         self.arduino.write(mensaje.encode())

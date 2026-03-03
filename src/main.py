@@ -39,6 +39,10 @@ cv2.namedWindow(VENTANA)
 cv2.setMouseCallback(VENTANA, mouse_callback_factory(app_state))
 
 
+def distancia(p1, p2):
+    return np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+
+
 # ==========================================
 # LOOP PRINCIPAL
 # ==========================================
@@ -122,10 +126,23 @@ while True:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
         cv2.putText(frame_display, "CLIC en el centro, ARRASTRA al borde", (20, 80),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame_display, "ESPACIO = confirmar  |  'r' = reintentar", (20, 115),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
 
-        if s.disco_listo:
-            cv2.circle(frame_display, (s.disco_cx, s.disco_cy),
-                       s.disco_radio, (0, 255, 0), 2)
+        # Mostrar circulo mientras se arrastra
+        if s.drag_inicio and s.drag_actual:
+            r_prev = int(distancia(s.drag_inicio, s.drag_actual))
+            cv2.circle(frame_display, s.drag_inicio, 5, (0, 255, 255), -1)
+            cv2.circle(frame_display, s.drag_inicio, r_prev, (0, 255, 255), 2)
+            cv2.putText(frame_display, f"radio: {r_prev}px",
+                        (s.drag_inicio[0] + 10, s.drag_inicio[1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+        elif s.disco_listo:
+            cv2.circle(frame_display, (s.disco_cx, s.disco_cy), s.disco_radio, (0, 255, 0), 2)
+            cv2.circle(frame_display, (s.disco_cx, s.disco_cy), 5, (0, 255, 0), -1)
+            cv2.putText(frame_display, f"r={s.disco_radio}px  OK - ESPACIO para jugar",
+                        (20, frame_display.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         if key == 32 and s.disco_listo:
             s.estado = "JUEGO"
@@ -133,6 +150,8 @@ while True:
             game_manager.reset()
         elif key == ord('r'):
             s.disco_listo = False
+            s.drag_inicio = None
+            s.drag_actual = None
 
     elif s.estado == "JUEGO":
 
@@ -147,6 +166,9 @@ while True:
             n: aplicar_morfologia(m.copy(), mascara_disco)
             for n, m in mascaras_raw.items()
         }
+
+        if s.disco_listo:
+            cv2.circle(frame_display, (s.disco_cx, s.disco_cy), s.disco_radio, (255, 255, 0), 2)
 
         dibujar_sectores(frame_display, mascaras)
 
