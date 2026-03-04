@@ -33,7 +33,7 @@ game_manager = GameManager(arduino)
 # ==========================================
 # CAPTURA
 # ==========================================
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 VENTANA = "Deteccion Rotatoria Dinamica"
 cv2.namedWindow(VENTANA)
 cv2.setMouseCallback(VENTANA, mouse_callback_factory(app_state))

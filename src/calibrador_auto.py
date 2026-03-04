@@ -50,7 +50,7 @@ def auto_calibrar(event, x, y, flags, param):
             
         print(f"Rango guardado exitosamente para: {nombre_color_actual}")
 
-cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
 # Crear ventana y asignar la función del ratón
 cv2.namedWindow('Webcam Original')

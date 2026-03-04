@@ -18,8 +18,8 @@ MAX_PELOTAS              = 3
 DISTANCIA_MISMA_PELOTA   = 120
 TIEMPO_OLVIDO            = 4.0
 
-RANGO_NEGRO_LOWER        = np.array([0,   0,   0])
-RANGO_NEGRO_UPPER        = np.array([179, 120, 80])
+RANGO_NEGRO_LOWER        = np.array([90,   7,   7])
+RANGO_NEGRO_UPPER        = np.array([110, 127, 127])
 AREA_MINIMA_PELOTA_NEGRA = 500
 AREA_MAXIMA_PELOTA_NEGRA = 10000
 CIRCULARIDAD_MINIMA      = 0.55
